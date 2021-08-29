@@ -9,6 +9,7 @@ import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.file.FileSystem;
 import io.vertx.core.impl.logging.Logger;
 import io.vertx.core.impl.logging.LoggerFactory;
 import io.vertx.ext.web.client.WebClient;
@@ -20,6 +21,7 @@ public class CosVerticle extends AbstractVerticle {
   private static WebClient client;
   private CosProperty cosProperty;
   private String url;
+  private FileSystem fs;
 
   @Override
   public void start(Promise<Void> startPromise) throws Exception {
@@ -49,9 +51,9 @@ public class CosVerticle extends AbstractVerticle {
     try {
       // 每一组文件的path都一样，在这里创建文件夹
       if (!files.isEmpty()
-        && !vertx.fileSystem().existsBlocking(this.cosProperty.getPath() + files.get(0).getPath())) {
+        && !fs.existsBlocking(this.cosProperty.getPath() + files.get(0).getPath())) {
         log.info("create dir : " + this.cosProperty.getPath() + files.get(0).getPath());
-        vertx.fileSystem().mkdirBlocking(this.cosProperty.getPath() + files.get(0).getPath());
+        fs.mkdirBlocking(this.cosProperty.getPath() + files.get(0).getPath());
       }
 
       String path = this.cosProperty.getPath() + files.get(0).getPath();
@@ -64,27 +66,13 @@ public class CosVerticle extends AbstractVerticle {
               JsonNode node = JsonUtil.toTree(res.bodyAsString()).get("data").get("files");
               loop(JsonUtil.toList(node.toString(), FileEntity.class));
             });
-  //        vertx.fileSystem().exists(path)
-  //          .onSuccess(exists -> {
-  //            if (!exists) {
-  //              vertx.fileSystem().mkdirBlocking(path);
-  //            }
-  //            client.getAbs(this.url)
-  //              .addQueryParam("path", entity.getName())
-  //              .send()
-  //              .onSuccess(res -> {
-  //                JsonNode node = JsonUtil.toTree(res.bodyAsString()).get("data").get("files");
-  //                loop(JsonUtil.toList(node.toString(), FileEntity.class));
-  //              });
-  //          })
-  //        .onFailure(Throwable::fillInStackTrace);
         } else {
           String name = path + entity.getName();
           client.getAbs(entity.getUrl())
             .send()
             .onSuccess(res -> {
               Buffer buffer = res.bodyAsBuffer();
-              vertx.fileSystem().writeFile(name, buffer, ar -> {
+              fs.writeFile(name, buffer, ar -> {
                 if (ar.succeeded()) {
                   log.info("download successful : " + name);
                 } else {
@@ -99,38 +87,9 @@ public class CosVerticle extends AbstractVerticle {
     }
   }
 
-  private Future<Void> initFolder() {
-    if (!vertx.fileSystem().existsBlocking(this.cosProperty.getPath()))
-      return vertx.fileSystem().mkdir(this.cosProperty.getPath());
-    return Future.succeededFuture();
-  }
-
-  private void downloading() {
-    client.getAbs("https://zfile.cosersets.com/file/1/Bambi밤비/Azur Lane - Illustrious (Never-Ending Tea Party ver.)/001.webp")
-      .send()
-      .onSuccess(res -> {
-        Buffer buffer = res.bodyAsBuffer();
-        String path = this.cosProperty.getPath();
-        vertx.fileSystem().exists(path)
-          .onSuccess(exists -> {
-            if (!exists) {
-              vertx.fileSystem().mkdirBlocking(path);
-            }
-            vertx.fileSystem().writeFile(path + "/test.png", buffer, ar -> {
-              if (ar.succeeded()) {
-                System.out.println("File written");
-              } else {
-                System.err.println("Oh oh ..." + ar.cause());
-              }
-            });
-          })
-          .onFailure(Throwable::printStackTrace);
-      })
-      .onFailure(Throwable::printStackTrace);
-  }
-
   private Future<CosProperty> init() {
     try {
+      fs = vertx.fileSystem();
       client = WebClient.create(vertx);
       return Future.succeededFuture(this.config().mapTo(CosProperty.class));
     } catch (Exception e) {
